@@ -1,14 +1,242 @@
+import dataclasses
+import uuid
+from django.utils import timezone
+from django.urls import reverse
+from django.utils.dateparse import parse_datetime
 from rest_framework.test import APITestCase
+from api.models import Category, Company
 
+@dataclasses.dataclass
+class CategoryData:
+    category_id: uuid.UUID
+    company_id: uuid.UUID
+    name: str
+    parent_category_id: uuid.UUID | None = None
+
+@dataclasses.dataclass
+class CompanyData:
+    company_id: uuid.UUID
+    name: str
+    categories: list[CategoryData] = dataclasses.field(default_factory=list)
+
+
+COMPANY_1_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+COMPANY_2_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
+COMPANY_3_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
+NOT_FOUND_COMPANY_ID = uuid.UUID("44444444-4444-4444-4444-444444444444")
+
+COMPANY_2_CATEGORY_1_ID = uuid.UUID("55555555-5555-5555-5555-555555555555")
+COMPANY_3_CATEGORY_1_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+COMPANY_3_CATEGORY_1_1_ID = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+COMPANY_3_CATEGORY_2_ID = uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
 
 class CategoryViewTests(APITestCase):
-    def test_list(self):
-        pass
+    TEST_COMPANIES = [
+        CompanyData(company_id=COMPANY_1_ID, name="Test Company 1"),
+        CompanyData(
+            company_id=COMPANY_2_ID,
+            name="Test Company 2",
+            categories=[
+                CategoryData(
+                    category_id=COMPANY_2_CATEGORY_1_ID,
+                    company_id=COMPANY_2_ID,
+                    name="Category 1",
+                ),
+            ],
+        ),
+        CompanyData(
+            company_id=COMPANY_3_ID,
+            name="Test Company 3",
+            categories=[
+                CategoryData(
+                    category_id=COMPANY_3_CATEGORY_1_ID,
+                    company_id=COMPANY_3_ID,
+                    name="Category 1",
+                ),
+                CategoryData(
+                    category_id=COMPANY_3_CATEGORY_1_1_ID,
+                    company_id=COMPANY_3_ID,
+                    name="Category 1-1",
+                    parent_category_id=COMPANY_3_CATEGORY_1_ID,
+                ),
+                CategoryData(
+                    category_id=COMPANY_3_CATEGORY_2_ID,
+                    company_id=COMPANY_3_ID,
+                    name="Category 2",
+                ),
+            ]
+        )
+    ]
+    TEST_START_TIME = timezone.now()
+
+    @classmethod
+    def setUpTestData(cls):
+        """テスト開始前にテスト用のデータを作成する"""
+        for company in cls.TEST_COMPANIES:
+            Company.objects.create(id=company.company_id, name=company.name)
+            for category in company.categories:
+                Category.objects.create(
+                    id=category.category_id,
+                    company_id=category.company_id,
+                    name=category.name,
+                    parent_category_id=category.parent_category_id,
+                )
+        
+    def _exclude_timestamp_with_test(self, categories: list[dict]) -> list[dict]:
+        """カテゴリのリストから作成日時、更新日時を取り除いて返します。
+        取り除く前に、、テスト開始から5秒以内に作成された日時であることを確認します。
+        """
+        def _test(at: str) -> None:
+            dt = parse_datetime(at)
+            self.assertIsNotNone(dt)
+            self.assertTrue(self.TEST_START_TIME <= dt <= self.TEST_START_TIME + timezone.timedelta(seconds=5))
+
+        for category in categories:
+            _test(at=category.pop("created_at"))
+            _test(at=category.pop("updated_at"))
+            category["children"] = self._exclude_timestamp_with_test(category["children"])
+        return categories
+
+    def test_list_success(self):
+        """カテゴリのリストを取得するテスト"""
+        for name, company_id, expected in [
+            (
+                "company 1 with no category",
+                COMPANY_1_ID,
+                [],
+            ),
+            (
+                "company 2 with one category",
+                COMPANY_2_ID,
+                [
+                    {
+                        "id": str(COMPANY_2_CATEGORY_1_ID),
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                        "children": [],
+                        # 作成時刻、更新時刻も変えるが、テストの都合上、値は取り除いて比較する
+                        # "created_at": ANY,
+                        # "updated_at": ANY,
+                    },
+                ],
+            ),
+            (
+                "company 3 with multiple categories and hierarchy",
+                COMPANY_3_ID,
+                [
+                    {
+                        "id": str(COMPANY_3_CATEGORY_1_ID),
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                        "children": [
+                            {
+                                "id": str(COMPANY_3_CATEGORY_1_1_ID),
+                                "name": "Category 1-1",
+                                "parent_category_id": str(COMPANY_3_CATEGORY_1_ID),
+                                "children": [],
+                            },
+                        ],
+                    },
+                    {
+                        "id": str(COMPANY_3_CATEGORY_2_ID),
+                        "name": "Category 2",
+                        "parent_category_id": None,
+                        "children": [],
+                    },
+                ],
+            )
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.get(reverse("categories", kwargs={"company_id": company_id}))
+                self.assertEqual(r.status_code, 200)
+
+                r.data["categories"] = self._exclude_timestamp_with_test(categories=r.data["categories"])
+
+                self.assertEqual(
+                    r.data,
+                    {
+                        "categories": expected,
+                    },
+                )
+
+    def test_list_failures(self):
+        """カテゴリ一覧を取得する際の失敗ケースのテスト"""
+        for name, company_id, status_code in [
+            ("invalid company_id", "invalid", 400),
+            ("not found company_id", NOT_FOUND_COMPANY_ID, 400),
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.get(reverse("categories", kwargs={"company_id": company_id}))
+                self.assertEqual(status_code, r.status_code)
+
+    def test_create_success(self):
+        """カテゴリを作成するテスト"""
+        for name, company_id in [
+            ("company 1", COMPANY_1_ID),
+            ("company 2", COMPANY_2_ID),
+        ]:
+            with self.subTest(msg=name):
+                # 企業間で同じカテゴリ名を作成できることを確認するため、カテゴリ名称は固定にする
+                r = self.client.post(
+                    reverse("categories", kwargs={"company_id": company_id}),
+                    data={
+                        "name": "category1",
+                    },
+                    format='json',
+                )
+
+                self.assertEqual(r.status_code, 201)
+
+                # idは動的に生成されるため取り除く
+                category_id = r.data.pop("id")
+
+                self.assertEqual(
+                    r.data,
+                    {
+                        "name": "category1",
+                        "parent_category_id": None,
+                    },
+                )
+
+                # 作成されたカテゴリがDBに存在することを確認
+                self.assertTrue(
+                    Category.objects.filter(
+                        id=category_id,
+                        company_id=company_id,
+                        name="category1",
+                        parent_category_id=None,
+                    ).exists(),
+                )
+
+                # 再度同じリクエストを投げるとエラーになる
+                r = self.client.post(
+                    reverse("categories", kwargs={"company_id": company_id}),
+                    data={
+                        "name": "category1",
+                    },
+                    format='json',
+                )
+                self.assertEqual(r.status_code, 409)
+
+    def test_create_failures(self):
+        """カテゴリ作成時の失敗ケースのテスト"""
+        for name, company_id, parent_category_id, status_code in [
+            ("invalid company_id", "invalid", None, 400),
+            ("not found company_id", NOT_FOUND_COMPANY_ID, None, 400),
+            ("invalid parent_category_id", COMPANY_1_ID, "invalid-category-id", 400),
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.post(
+                    reverse("categories", kwargs={"company_id": company_id}),
+                    data={
+                        "name": "category1",
+                        "parent_category_id": parent_category_id,
+                    },
+                    format='json',
+                )
+                self.assertEqual(status_code, r.status_code)
 
     def test_retrieve(self):
-        pass
-
-    def test_create(self):
         pass
 
     def test_update(self):

@@ -1,4 +1,6 @@
+from urllib import request
 import uuid
+from django.db import IntegrityError, transaction
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
@@ -45,6 +47,8 @@ class CategoryView(APIView):
         category_map = {
             str(category["id"]): {
                 **category,
+                "id": str(category["id"]),
+                "parent_category_id": str(category["parent_category_id"]) if category["parent_category_id"] else None,
                 "children": [],
             }
             for category in categories
@@ -113,12 +117,17 @@ class CategoryView(APIView):
             )
 
         new_category_id = uuid.uuid4()
-        Category.objects.create(
-            id=new_category_id,
-            company_id=company.id,
-            name=request.data.get("name"),
-            parent_category_id=parent_category_id,
-        )
+
+        try:
+            with transaction.atomic():
+                Category.objects.create(
+                    id=new_category_id,
+                    company_id=company.id,
+                    name=request.data.get("name"),
+                    parent_category_id=parent_category_id,
+                )
+        except IntegrityError:
+            return Response(status=409)
 
         return Response(
             status=201,
