@@ -245,5 +245,58 @@ class CategoryViewTests(APITestCase):
     def test_update(self):
         pass
 
-    def test_destroy(self):
-        pass
+    def test_destroy_success(self):
+        """カテゴリを削除するテスト"""
+        for name, company_id, category_id in [
+            ("company 2 category 1", COMPANY_2_ID, COMPANY_2_CATEGORY_1_ID),
+            ("company 3 category 1-1", COMPANY_3_ID, COMPANY_3_CATEGORY_1_1_ID),
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.delete(
+                    reverse(
+                        "category-detail",
+                        kwargs={
+                            "company_id": company_id,
+                            "category_id": category_id,
+                        },
+                    ),
+                )
+                self.assertEqual(r.status_code, 204)
+
+                # もう一度同じリクエストを投げるとエラーになることを確認する
+                r = self.client.delete(
+                    reverse(
+                        "category-detail",
+                        kwargs={
+                            "company_id": company_id,
+                            "category_id": category_id,
+                        },
+                    ),
+                )
+                self.assertEqual(r.status_code, 404)
+
+                # DBからも削除されていることを確認する
+                self.assertFalse(
+                    Category.objects.filter(
+                        id=category_id,
+                        company_id=company_id,
+                    ).exists(),
+                )
+
+    def test_destroy_failures(self):
+        """カテゴリ削除時の失敗ケースのテスト"""
+        for name, company_id, category_id in [
+            ("not found category_id", COMPANY_1_ID, COMPANY_2_ID),
+            ("category with children", COMPANY_3_ID, COMPANY_3_CATEGORY_1_ID),
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.delete(
+                    reverse(
+                        "category-detail",
+                        kwargs={
+                            "company_id": company_id,
+                            "category_id": category_id,
+                        },
+                    ),
+                )
+                self.assertEqual(r.status_code, 404)

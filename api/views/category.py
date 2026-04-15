@@ -1,6 +1,7 @@
 from urllib import request
 import uuid
 from django.db import IntegrityError, transaction
+from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
@@ -10,6 +11,7 @@ from api.serializers import CategoriesSerializer
 
 
 InvalidCompanyID = ValidationError("Invalid company_id")
+InvalidCategoryID = ValidationError("Invalid category_id")
 InvalidParentCategoryID = ValidationError("Invalid parent_category_id")
 
 
@@ -71,17 +73,19 @@ class CategoryView(APIView):
 
         return tree
 
-    def get(self, request: Request, company_id: str, *args, **kwargs) -> Response:
-        company = get_company(
-            company_id=parse_must_uuid(
-                name="company_id",
-                v=company_id,
-                exception=InvalidCompanyID,
-            ),
+    def initial(self, request: Request,*args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        
+        company_id = parse_must_uuid(
+            name="company_id",
+            v=kwargs.get('company_id'),
+            exception=InvalidCompanyID,
         )
+        self.company = get_company(company_id=company_id)
 
+    def get(self, request: Request, category_id: str | None = None, **kwargs) -> Response:
         serializer = CategoriesSerializer(
-            Category.objects.filter(company_id=company.id),
+            Category.objects.filter(company_id=self.company.id),
             many=True,
         )
 
@@ -92,15 +96,7 @@ class CategoryView(APIView):
             },
         )
 
-    def post(self, request: Request, company_id: str, *args, **kwargs) -> Response:
-        company = get_company(
-            company_id=parse_must_uuid(
-                name="company_id",
-                v=company_id,
-                exception=InvalidCompanyID,
-            ),
-        )
-
+    def post(self, request: Request, **kwargs) -> Response:
         parent_category_id: uuid.UUID | None = parse_must_uuid(
             name="parent_category_id",
             v=request.data.get("parent_category_id"),
@@ -110,7 +106,7 @@ class CategoryView(APIView):
             # parent_category_idの存在確認
             get_category(
                 category_id=parent_category_id,
-                company_id=company.id,
+                company_id=self.company.id,
                 exception=InvalidParentCategoryID,
             )
 
@@ -120,7 +116,7 @@ class CategoryView(APIView):
             with transaction.atomic():
                 Category.objects.create(
                     id=new_category_id,
-                    company_id=company.id,
+                    company_id=self.company.id,
                     name=request.data.get("name"),
                     parent_category_id=parent_category_id,
                 )
@@ -136,8 +132,30 @@ class CategoryView(APIView):
             },
         )
 
-    def put(self, request: Request, *args, **kwargs) -> Response:
+    def put(self, request: Request, **kwargs) -> Response:
         return Response("This is the category tree view.")
 
-    def delete(self, request: Request, *args, **kwargs) -> Response:
-        return Response("This is the category tree view.")
+    def delete(
+        self,
+        request: Request,
+        category_id: str | None = None,
+        **kwargs,
+    ) -> Response:
+        category = get_object_or_404(
+            Category,
+            id=parse_must_uuid(
+                name="category_id",
+                v=category_id,
+                exception=InvalidCategoryID,
+            ),
+            company_id=self.company.id,
+        )
+
+        # 子どもがいるカテゴリは削除できない
+        if Category.objects.filter(parent_category_id=category.id).exists():
+            return Response(status=400, data={"detail": "Cannot delete category with children."})
+
+        with transaction.atomic():
+            category.delete()
+
+        return Response(status=204)
