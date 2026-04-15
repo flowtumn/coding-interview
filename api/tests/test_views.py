@@ -144,16 +144,17 @@ class CategoryViewTests(APITestCase):
                         "children": [],
                     },
                 ],
-            )
+            ),
         ]:
             with self.subTest(msg=name):
                 r = self.client.get(reverse("categories", kwargs={"company_id": company_id}))
                 self.assertEqual(r.status_code, 200)
 
-                r.data["categories"] = self._exclude_timestamp_with_test(categories=r.data["categories"])
+                actual_data = r.json()
+                actual_data["categories"] = self._exclude_timestamp_with_test(categories=actual_data["categories"])
 
                 self.assertEqual(
-                    r.data,
+                    actual_data,
                     {
                         "categories": expected,
                     },
@@ -188,10 +189,11 @@ class CategoryViewTests(APITestCase):
                 self.assertEqual(r.status_code, 201)
 
                 # idは動的に生成されるため取り除く
-                category_id = r.data.pop("id")
+                actual_data = r.json()
+                category_id = actual_data.pop("id")
 
                 self.assertEqual(
-                    r.data,
+                    actual_data,
                     {
                         "name": "category1",
                         "parent_category_id": None,
@@ -224,6 +226,7 @@ class CategoryViewTests(APITestCase):
             ("invalid company_id", "invalid", None, 400),
             ("not found company_id", NOT_FOUND_COMPANY_ID, None, 400),
             ("invalid parent_category_id", COMPANY_1_ID, "invalid-category-id", 400),
+            ("invalid parent_category_id with not found category", COMPANY_3_ID, COMPANY_1_ID, 400),
         ]:
             with self.subTest(msg=name):
                 r = self.client.post(

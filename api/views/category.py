@@ -47,8 +47,6 @@ class CategoryView(APIView):
         category_map = {
             str(category["id"]): {
                 **category,
-                "id": str(category["id"]),
-                "parent_category_id": str(category["parent_category_id"]) if category["parent_category_id"] else None,
                 "children": [],
             }
             for category in categories
