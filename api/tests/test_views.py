@@ -1,13 +1,14 @@
 import dataclasses
-from unicodedata import category
 import uuid
-from django.test import TestCase
-from django.utils import timezone
-from django.urls import reverse
-from django.utils.dateparse import parse_datetime
-from rest_framework.test import APITestCase
 from api.models import Category, Company
 from api.views import CategoryView
+from django.forms.models import model_to_dict
+from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from rest_framework.test import APITestCase
+
 
 @dataclasses.dataclass
 class CategoryData:
@@ -15,6 +16,7 @@ class CategoryData:
     company_id: uuid.UUID
     name: str
     parent_category_id: uuid.UUID | None = None
+
 
 @dataclasses.dataclass
 class CompanyData:
@@ -218,19 +220,20 @@ class CategoryViewAPITests(APITestCase):
                     name=category.name,
                     parent_category_id=category.parent_category_id,
                 )
+
+    def assert_datetime_within_range(self, at: str) -> None:
+        """日時文字列がテスト開始から5秒以内であることを確認します"""
+        dt = parse_datetime(at)
+        self.assertIsNotNone(dt)
+        self.assertTrue(self.TEST_START_TIME <= dt <= self.TEST_START_TIME + timezone.timedelta(seconds=5))
         
     def _exclude_timestamp_with_test(self, categories: list[dict]) -> list[dict]:
         """カテゴリのリストから作成日時、更新日時を取り除いて返します。
         取り除く前に、、テスト開始から5秒以内に作成された日時であることを確認します。
         """
-        def _test(at: str) -> None:
-            dt = parse_datetime(at)
-            self.assertIsNotNone(dt)
-            self.assertTrue(self.TEST_START_TIME <= dt <= self.TEST_START_TIME + timezone.timedelta(seconds=5))
-
         for category in categories:
-            _test(at=category.pop("created_at"))
-            _test(at=category.pop("updated_at"))
+            self.assert_datetime_within_range(at=category.pop("created_at"))
+            self.assert_datetime_within_range(at=category.pop("updated_at"))
             category["children"] = self._exclude_timestamp_with_test(category["children"])
         return categories
 
@@ -404,9 +407,13 @@ class CategoryViewAPITests(APITestCase):
 
                 self.assertEqual(r.status_code, 201)
 
-                # idは動的に生成されるため取り除く
+                # id, created_at, updated_at は動的に生成されるため取り除く
                 actual_data = r.json()
                 category_id = actual_data.pop("id")
+
+                # 直近の時間かをテストする
+                self.assert_datetime_within_range(at=actual_data.pop("created_at"))
+                self.assert_datetime_within_range(at=actual_data.pop("updated_at"))
 
                 self.assertEqual(
                     actual_data,
@@ -442,7 +449,7 @@ class CategoryViewAPITests(APITestCase):
             ("invalid company_id", 400, "invalid", None),
             ("not found company_id", 404, NOT_FOUND_COMPANY_ID, None),
             ("invalid parent_category_id", 400, COMPANY_1_ID, "invalid-category-id"),
-            ("invalid parent_category_id with not found category", 404, COMPANY_3_ID, COMPANY_1_ID),
+            ("invalid parent_category_id with not found category", 400, COMPANY_3_ID, COMPANY_1_ID),
         ]:
             with self.subTest(msg=name):
                 r = self.client.post(
@@ -455,11 +462,138 @@ class CategoryViewAPITests(APITestCase):
                 )
                 self.assertEqual(status_code, r.status_code)
 
-    def test_retrieve(self):
-        pass
-
     def test_update(self):
-        pass
+        """カテゴリを更新するテスト"""
+        for name, company_id, category_id, body in [
+            (
+                "company 2 category 1 update name",
+                COMPANY_2_ID,
+                COMPANY_2_CATEGORY_1_ID,
+                {
+                    "name": "updated company 2 category 1 name",
+                },
+            ),
+            # 親を COMPANY_3_CATEGORY_2_ID に変更
+            (
+                "company 3 category 1-1 update parent_category_id to null",
+                COMPANY_3_ID,
+                COMPANY_3_CATEGORY_1_1_ID,
+                {
+                    "parent_category_id": COMPANY_3_CATEGORY_2_ID,
+                },
+            ),
+            (
+                "company 3 category 1-1 update name and parent_category_id",
+                COMPANY_3_ID,
+                COMPANY_3_CATEGORY_1_1_ID,
+                {
+                    "name": "updated category 1-1 name",
+                    "parent_category_id": None,
+                },
+            ),
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.patch(
+                    reverse(
+                        "category-detail",
+                        kwargs={
+                            "company_id": company_id,
+                            "category_id": category_id,
+                        },
+                    ),
+                    data=body,
+                    format='json',
+                )
+                self.assertEqual(r.status_code, 200)
+
+                # DBの値も更新されていることを確認する
+                category = model_to_dict(
+                    Category.objects.get(
+                        id=category_id,
+                        company_id=company_id,
+                    ),
+                )
+
+                self.assertEqual(
+                    {
+                        "company": company_id,
+                        "name": body.get("name", category["name"]),
+                        "parent_category": body.get("parent_category_id", category["parent_category"]),
+                    },
+                    model_to_dict(
+                        Category.objects.get(
+                            id=category_id,
+                            company_id=company_id,
+                        ),
+                    ),
+                )
+
+    def test_update_failures(self):
+        """カテゴリ更新時の失敗ケースのテスト"""
+        for name, status_code, company_id, category_id, body in [
+            (
+                "invalid company_id",
+                400,
+                "invalid",
+                COMPANY_3_CATEGORY_1_1_ID,
+                {},
+            ),
+            (
+                "not found company_id",
+                404,
+                NOT_FOUND_COMPANY_ID,
+                COMPANY_3_CATEGORY_1_1_ID,
+                {},
+            ),
+            (
+                "invalid category_id",
+                400,
+                COMPANY_3_ID,
+                "invalid",
+                {},
+            ),
+            (
+                "not found category_id",
+                404,
+                COMPANY_3_ID,
+                NOT_FOUND_COMPANY_ID,
+                {},
+            ),
+            # 親を自分自身に変更
+            (
+                "company 3 category 1-1 update parent_category_id to itself",
+                400,
+                COMPANY_3_ID,
+                COMPANY_3_CATEGORY_1_1_ID,
+                {
+                    "parent_category_id": COMPANY_3_CATEGORY_1_1_ID,
+                },
+            ),
+            # 存在しない親カテゴリIDを指定
+            (
+                "invalid parent_category_id",
+                400,
+                COMPANY_3_ID,
+                COMPANY_3_CATEGORY_1_1_ID,
+                {
+                    "parent_category_id": NOT_FOUND_COMPANY_ID,
+                },
+            ),
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.patch(
+                    reverse(
+                        "category-detail",
+                        kwargs={
+                            "company_id": company_id,
+                            "category_id": category_id,
+                        },
+                    ),
+                    data=body,
+                    format='json',
+                )
+                self.assertEqual(status_code, r.status_code)
+
 
     def test_destroy_success(self):
         """カテゴリを削除するテスト"""

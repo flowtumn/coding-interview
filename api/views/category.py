@@ -1,15 +1,14 @@
-from urllib import request
 import uuid
+from api.models import Category, Company
+from api.serializers import CategoriesSerializer
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.request import Request
 from rest_framework.exceptions import ValidationError
-from api.models import Category, Company
-from api.serializers import CategoriesSerializer
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 
 InvalidCompanyID = ValidationError("Invalid company_id")
@@ -31,17 +30,6 @@ def get_company(
     try:
         return Company.objects.get(id=company_id)
     except Company.DoesNotExist:
-        raise exception
-
-
-def get_category(
-    category_id: uuid.UUID,
-    company_id: uuid.UUID,
-    exception: Exception,
-) -> Category:
-    try:
-        return Category.objects.get(id=category_id, company_id=company_id)
-    except Category.DoesNotExist:
         raise exception
 
 
@@ -89,6 +77,7 @@ class CategoryView(APIView):
         )
 
     def get(self, request: Request, category_id: str | None = None, **kwargs) -> Response:
+        """Categoryの一覧、もしくは特定のCategory(子を込み)を取得します。"""
         if category_id:
             _category_id = parse_must_uuid(
                 name="category_id",
@@ -117,6 +106,7 @@ class CategoryView(APIView):
                 data=data[0]
             )
         else:
+            # SQLの発行は一回に留めるため全件取得。
             serializer = CategoriesSerializer(
                 Category.objects.filter(company_id=self.company.id),
                 many=True,
@@ -129,51 +119,67 @@ class CategoryView(APIView):
                 },
             )
         
-
     def post(self, request: Request, **kwargs) -> Response:
-        parent_category_id: uuid.UUID | None = parse_must_uuid(
-            name="parent_category_id",
-            v=request.data.get("parent_category_id"),
-            exception=InvalidParentCategoryID,
-        ) if request.data.get("parent_category_id") else None
-        if parent_category_id:
-            # parent_category_idの存在確認
-            get_object_or_404(
-                Category,
-                id=parent_category_id,
-                company_id=self.company.id,
-            )
+        """Categoryの作成を行います。
+        Requestパラメーター例:
 
-        new_category_id = uuid.uuid4()
+        {
+          "name": "カテゴリ名",
+          "parent_category_id": "親カテゴリID (null可)"
+        }
+        """
 
+        serializer = CategoriesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
             with transaction.atomic():
-                Category.objects.create(
-                    id=new_category_id,
-                    company_id=self.company.id,
-                    name=request.data.get("name"),
-                    parent_category_id=parent_category_id,
-                )
+                serializer.save(company=self.company)
+            return Response(
+                serializer.data,
+                status=201,
+            )
         except IntegrityError:
             return Response(status=409)
 
-        return Response(
-            status=201,
-            data={
-                "id": str(new_category_id),
-                "name": request.data.get("name"),
-                "parent_category_id": parent_category_id,
-            },
-        )
-
     def patch(self, request: Request, category_id: str, **kwargs) -> Response:
-        """Categoryの更新を行います。Requestパラメーターは以下の通りです。
+        """Categoryの更新を行います。
+        値が null の場合は、フィールドをnullに更新します。
+        プロパティが存在しないときは、そのフィールドは更新されません。
+        Requestパラメーター例:
+
         {
           "name": "カテゴリ名",
           "parent_category_id": "親カテゴリID"
         }
         """
-        return Response("This is the category tree view.")
+
+        category = get_object_or_404(
+            Category,
+            id=parse_must_uuid(
+                name="category_id",
+                v=category_id,
+                exception=InvalidCategoryID,
+            ),
+            company_id=self.company.id,
+        )
+
+        serializer = CategoriesSerializer(
+            category,
+            data=request.data,
+            context={
+                "company_id": self.company.id,
+            },
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            with transaction.atomic():
+                serializer.save()
+            
+            return Response(serializer.data, status=200)
+        except IntegrityError:
+            return Response(status=409)
 
     def delete(
         self,
@@ -181,6 +187,7 @@ class CategoryView(APIView):
         category_id: str,
         **kwargs,
     ) -> Response:
+        """Categoryの削除を行います。子どもがいるカテゴリは削除できません。"""
         category = get_object_or_404(
             Category,
             id=parse_must_uuid(
