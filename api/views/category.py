@@ -16,9 +16,9 @@ InvalidCategoryID = ValidationError("Invalid category_id")
 InvalidParentCategoryID = ValidationError("Invalid parent_category_id")
 
 
-def parse_must_uuid(name: str, v: str, exception: Exception) -> uuid.UUID:
+def parse_must_uuid(value: str, exception: Exception) -> uuid.UUID:
     try:
-        return uuid.UUID(v)
+        return uuid.UUID(value)
     except ValueError:
         raise exception
 
@@ -67,8 +67,7 @@ class CategoryView(APIView):
         super().initial(request, *args, **kwargs)
         
         company_id = parse_must_uuid(
-            name="company_id",
-            v=kwargs.get('company_id'),
+            value=kwargs.get('company_id'),
             exception=InvalidCompanyID,
         )
         self.company = get_object_or_404(
@@ -80,8 +79,7 @@ class CategoryView(APIView):
         """Categoryの一覧、もしくは特定のCategory(子を込み)を取得します。"""
         if category_id:
             _category_id = parse_must_uuid(
-                name="category_id",
-                v=category_id,
+                value=category_id,
                 exception=InvalidCategoryID,
             )
 
@@ -156,8 +154,7 @@ class CategoryView(APIView):
         category = get_object_or_404(
             Category,
             id=parse_must_uuid(
-                name="category_id",
-                v=category_id,
+                value=category_id,
                 exception=InvalidCategoryID,
             ),
             company_id=self.company.id,
@@ -191,8 +188,7 @@ class CategoryView(APIView):
         category = get_object_or_404(
             Category,
             id=parse_must_uuid(
-                name="category_id",
-                v=category_id,
+                value=category_id,
                 exception=InvalidCategoryID,
             ),
             company_id=self.company.id,

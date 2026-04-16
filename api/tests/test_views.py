@@ -1,7 +1,7 @@
 import dataclasses
 import uuid
 from api.models import Category, Company
-from api.views import CategoryView
+from api.views.category import get_company, parse_must_uuid, CategoryView, InvalidCompanyID, InvalidCategoryID
 from django.forms.models import model_to_dict
 from django.test import TestCase
 from django.urls import reverse
@@ -35,8 +35,48 @@ COMPANY_3_CATEGORY_1_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 COMPANY_3_CATEGORY_1_1_ID = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 COMPANY_3_CATEGORY_2_ID = uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
 
-class CategoryViewAPITests(TestCase):
+
+class CategoryViewUtilsTests(TestCase):
     """CategoryViewのAPI以外のユニットテスト"""
+
+    def test_parse_must_uuid_success(self):
+        """parse_must_uuidのテスト"""
+        for name, v, expected in [
+            ("valid uuid", "11111111-1111-1111-1111-111111111111", uuid.UUID("11111111-1111-1111-1111-111111111111")),
+        ]:
+            with self.subTest(msg=name):
+                self.assertEqual(
+                    expected,
+                    parse_must_uuid(value=v, exception=InvalidCompanyID),
+                )
+
+    # def test_parse_must_uuid_failures(self):
+    #     """parse_must_uuidの失敗ケースのテスト"""
+    #     for name, v, raise_exception in [
+    #         ("invalid uuid format", "invalid-uuid", InvalidCompanyID),
+    #         ("empty string", "", InvalidCategoryID),
+    #     ]:
+    #         with self.subTest(msg=name):
+    #             try:
+    #                 parse_must_uuid(value=v, exception=raise_exception)
+    #             except type(raise_exception) as e:
+    #                 pass
+    
+    def test_get_company_success(self):
+        """get_companyのテスト"""
+        company = Company.objects.create(id=COMPANY_1_ID, name="Test Company 1")
+
+        self.assertEqual(
+            company,
+            get_company(company_id=COMPANY_1_ID),
+        )
+
+    # def test_get_company_not_found(self):
+    #     """get_companyの会社が見つからないケースのテスト"""
+    #     with self.assertRaises(InvalidCompanyID) as cm:
+    #         get_company(company_id=NOT_FOUND_COMPANY_ID)
+    #     self.assertNotEqual(str(cm.exception), str(InvalidCompanyID))
+
 
     def test_convert_to_response(self):
         """CategoryView.convert_to_responseのテスト"""
