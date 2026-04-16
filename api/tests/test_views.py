@@ -1,11 +1,13 @@
 import dataclasses
 from unicodedata import category
 import uuid
+from django.test import TestCase
 from django.utils import timezone
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 from rest_framework.test import APITestCase
 from api.models import Category, Company
+from api.views import CategoryView
 
 @dataclasses.dataclass
 class CategoryData:
@@ -31,7 +33,141 @@ COMPANY_3_CATEGORY_1_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 COMPANY_3_CATEGORY_1_1_ID = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 COMPANY_3_CATEGORY_2_ID = uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
 
-class CategoryViewTests(APITestCase):
+class CategoryViewAPITests(TestCase):
+    """CategoryViewのAPI以外のユニットテスト"""
+
+    def test_convert_to_response(self):
+        """CategoryView.convert_to_responseのテスト"""
+        for name, categories, expected in [
+            (
+                "no category",
+                [],
+                [],
+            ),
+            (
+                "one category without parent",
+                [
+                    {
+                        "id": COMPANY_2_CATEGORY_1_ID,
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                    },
+                ],
+                [
+                    {
+                        "id": COMPANY_2_CATEGORY_1_ID,
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                        "children": [],
+                    },
+                ],
+            ),
+            (
+                "multiple categories with hierarchy",
+                [
+                    {
+                        "id": COMPANY_3_CATEGORY_1_ID,
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                    },
+                    {
+                        "id": COMPANY_3_CATEGORY_1_1_ID,
+                        "name": "Category 1-1",
+                        "parent_category_id": COMPANY_3_CATEGORY_1_ID,
+                    },
+                    {
+                        "id": COMPANY_3_CATEGORY_2_ID,
+                        "name": "Category 2",
+                        "parent_category_id": None,
+                    },
+                    {
+                        "id": COMPANY_2_CATEGORY_1_ID,
+                        "name": "Category 2",
+                        "parent_category_id": COMPANY_3_CATEGORY_1_1_ID,
+                    },
+                ],
+                [
+                    {
+                        "id": COMPANY_3_CATEGORY_1_ID,
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                        "children": [
+                            {
+                                "id": COMPANY_3_CATEGORY_1_1_ID,
+                                "name": "Category 1-1",
+                                "parent_category_id": COMPANY_3_CATEGORY_1_ID,
+                                "children": [
+                                    {
+                                        "id": COMPANY_2_CATEGORY_1_ID,
+                                        "name": "Category 2",
+                                        "parent_category_id": COMPANY_3_CATEGORY_1_1_ID,
+                                        "children": [],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "id": COMPANY_3_CATEGORY_2_ID,
+                        "name": "Category 2",
+                        "parent_category_id": None,
+                        "children": [],
+                    },
+                ],
+            ),
+            (
+                "category with parent_category_id that does not exist",
+                [
+                    {
+                        "id": COMPANY_3_CATEGORY_1_ID,
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                    },
+                    {
+                        "id": COMPANY_3_CATEGORY_1_1_ID,
+                        "name": "Category 1-1",
+                        "parent_category_id": COMPANY_3_CATEGORY_1_ID,
+                    },
+                    {
+                        "id": COMPANY_3_CATEGORY_2_ID,
+                        "name": "Category 2",
+                        "parent_category_id": COMPANY_2_CATEGORY_1_ID, # 存在しない親カテゴリID
+                    },
+                ],
+                [
+                    {
+                        "id": COMPANY_3_CATEGORY_1_ID,
+                        "name": "Category 1",
+                        "parent_category_id": None,
+                        "children": [
+                            {
+                                "id": COMPANY_3_CATEGORY_1_1_ID,
+                                "name": "Category 1-1",
+                                "parent_category_id": COMPANY_3_CATEGORY_1_ID,
+                                "children": [],
+                            },
+                        ],
+                    },
+                    # 親が存在しないが、ツリーのルートに置かれる
+                    {
+                        "id": COMPANY_3_CATEGORY_2_ID,
+                        "name": "Category 2",
+                        "parent_category_id": COMPANY_2_CATEGORY_1_ID,
+                        "children": [],
+                    },
+                ],
+            ),
+        ]:
+            with self.subTest(msg=name):
+                self.assertEqual(
+                    expected,
+                    CategoryView.convert_to_response(categories=categories),
+                )
+
+
+class CategoryViewAPITests(APITestCase):
+    """CategoryViewのAPIのテスト"""
+
     TEST_COMPANIES = [
         CompanyData(company_id=COMPANY_1_ID, name="Test Company 1"),
         CompanyData(
