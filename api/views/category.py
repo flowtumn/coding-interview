@@ -1,6 +1,8 @@
 from urllib import request
 import uuid
 from django.db import IntegrityError, transaction
+from django.db.models import Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -81,20 +83,52 @@ class CategoryView(APIView):
             v=kwargs.get('company_id'),
             exception=InvalidCompanyID,
         )
-        self.company = get_company(company_id=company_id)
+        self.company = get_object_or_404(
+            Company,
+            id=company_id,
+        )
 
     def get(self, request: Request, category_id: str | None = None, **kwargs) -> Response:
-        serializer = CategoriesSerializer(
-            Category.objects.filter(company_id=self.company.id),
-            many=True,
-        )
+        if category_id:
+            _category_id = parse_must_uuid(
+                name="category_id",
+                v=category_id,
+                exception=InvalidCategoryID,
+            )
 
-        return Response(
-            status=200,
-            data={
-                "categories": self.convert_to_response(categories=serializer.data),
-            },
-        )
+            serializer = CategoriesSerializer(
+                Category.objects.filter(
+                    Q(id=_category_id) | Q(parent_category_id=_category_id),
+                    company_id=self.company.id,
+                ),
+                many=True,
+            )
+
+            if not serializer.data:
+                raise Http404("Category not found.")
+
+            data = self.convert_to_response(categories=serializer.data)
+
+            # category_idが指定されているので、配列の大きさは1
+            assert len(data) == 1
+
+            return Response(
+                status=200,
+                data=data[0]
+            )
+        else:
+            serializer = CategoriesSerializer(
+                Category.objects.filter(company_id=self.company.id),
+                many=True,
+            )
+
+            return Response(
+                status=200,
+                data={
+                    "categories": self.convert_to_response(categories=serializer.data),
+                },
+            )
+        
 
     def post(self, request: Request, **kwargs) -> Response:
         parent_category_id: uuid.UUID | None = parse_must_uuid(
@@ -104,10 +138,10 @@ class CategoryView(APIView):
         ) if request.data.get("parent_category_id") else None
         if parent_category_id:
             # parent_category_idの存在確認
-            get_category(
-                category_id=parent_category_id,
+            get_object_or_404(
+                Category,
+                id=parent_category_id,
                 company_id=self.company.id,
-                exception=InvalidParentCategoryID,
             )
 
         new_category_id = uuid.uuid4()
@@ -132,13 +166,19 @@ class CategoryView(APIView):
             },
         )
 
-    def put(self, request: Request, **kwargs) -> Response:
+    def patch(self, request: Request, category_id: str, **kwargs) -> Response:
+        """Categoryの更新を行います。Requestパラメーターは以下の通りです。
+        {
+          "name": "カテゴリ名",
+          "parent_category_id": "親カテゴリID"
+        }
+        """
         return Response("This is the category tree view.")
 
     def delete(
         self,
         request: Request,
-        category_id: str | None = None,
+        category_id: str,
         **kwargs,
     ) -> Response:
         category = get_object_or_404(

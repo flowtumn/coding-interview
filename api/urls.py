@@ -12,6 +12,6 @@ urlpatterns = [
     path("", include(router.urls)),
     # GET, POST
     path("company/<str:company_id>/categories/", CategoryView.as_view(), name="categories"),
-    # GET, PUT, DELETE
+    # GET, PATCH, DELETE
     path("company/<str:company_id>/categories/<str:category_id>/", CategoryView.as_view(), name="category-detail"),
 ]

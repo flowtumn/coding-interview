@@ -1,4 +1,5 @@
 import dataclasses
+from unicodedata import category
 import uuid
 from django.utils import timezone
 from django.urls import reverse
@@ -97,6 +98,85 @@ class CategoryViewTests(APITestCase):
             category["children"] = self._exclude_timestamp_with_test(category["children"])
         return categories
 
+    def test_get_category_success(self):
+        """カテゴリIDを指定して取得するテスト"""
+        for name, company_id, category_id, expected in [
+            (
+                "company 2 with one category",
+                COMPANY_2_ID,
+                COMPANY_2_CATEGORY_1_ID,
+                {
+                    "id": str(COMPANY_2_CATEGORY_1_ID),
+                    "name": "Category 1",
+                    "parent_category_id": None,
+                    "children": [],
+                    # 作成時刻、更新時刻も変えるが、テストの都合上、値は取り除いて比較する
+                    # "created_at": ANY,
+                    # "updated_at": ANY,
+                },
+            ),
+            (
+                "company 3 with multiple categories and hierarchy",
+                COMPANY_3_ID,
+                COMPANY_3_CATEGORY_1_ID,
+                {
+                    "id": str(COMPANY_3_CATEGORY_1_ID),
+                    "name": "Category 1",
+                    "parent_category_id": None,
+                    "children": [
+                        {
+                            "id": str(COMPANY_3_CATEGORY_1_1_ID),
+                            "name": "Category 1-1",
+                            "parent_category_id": str(COMPANY_3_CATEGORY_1_ID),
+                            "children": [],
+                        },
+                    ],
+                },
+            ),
+        ]:
+            with self.subTest(msg=name):
+                r = self.client.get(
+                    reverse(
+                        "category-detail",
+                        kwargs={
+                            "company_id": company_id,
+                            "category_id": category_id,
+                        },
+                    ),
+                )
+                self.assertEqual(r.status_code, 200)
+
+                actual_data = self._exclude_timestamp_with_test(
+                    categories=[r.json()],
+                )
+
+                self.assertEqual(len(actual_data), 1)
+                self.assertEqual(
+                    actual_data[0],
+                    expected,
+                )
+
+    def test_get_category_failures(self):
+        """カテゴリIDを指定して取得する際の失敗ケースのテスト"""
+        for name, status_code, company_id, category_id in [
+            ("invalid company_id", 400, "invalid", COMPANY_2_CATEGORY_1_ID),
+            ("not found company_id", 404, NOT_FOUND_COMPANY_ID, COMPANY_2_CATEGORY_1_ID),
+            ("invalid category_id", 400, COMPANY_2_ID, "invalid"),
+            ("not found category_id", 404, COMPANY_2_ID, COMPANY_3_CATEGORY_1_1_ID),
+        ]:
+            with self.subTest(msg=name, status_code=status_code):
+                r = self.client.get(
+                    reverse(
+                        "category-detail",
+                        kwargs={
+                            "company_id": company_id,
+                            "category_id": category_id,
+                        },
+                    ),
+                )
+
+                self.assertEqual(status_code, r.status_code)
+
     def test_list_success(self):
         """カテゴリのリストを取得するテスト"""
         for name, company_id, expected in [
@@ -162,9 +242,9 @@ class CategoryViewTests(APITestCase):
 
     def test_list_failures(self):
         """カテゴリ一覧を取得する際の失敗ケースのテスト"""
-        for name, company_id, status_code in [
-            ("invalid company_id", "invalid", 400),
-            ("not found company_id", NOT_FOUND_COMPANY_ID, 400),
+        for name, status_code, company_id in [
+            ("invalid company_id", 400, "invalid"),
+            ("not found company_id", 404, NOT_FOUND_COMPANY_ID),
         ]:
             with self.subTest(msg=name):
                 r = self.client.get(reverse("categories", kwargs={"company_id": company_id}))
@@ -222,11 +302,11 @@ class CategoryViewTests(APITestCase):
 
     def test_create_failures(self):
         """カテゴリ作成時の失敗ケースのテスト"""
-        for name, company_id, parent_category_id, status_code in [
-            ("invalid company_id", "invalid", None, 400),
-            ("not found company_id", NOT_FOUND_COMPANY_ID, None, 400),
-            ("invalid parent_category_id", COMPANY_1_ID, "invalid-category-id", 400),
-            ("invalid parent_category_id with not found category", COMPANY_3_ID, COMPANY_1_ID, 400),
+        for name, status_code, company_id, parent_category_id in [
+            ("invalid company_id", 400, "invalid", None),
+            ("not found company_id", 404, NOT_FOUND_COMPANY_ID, None),
+            ("invalid parent_category_id", 400, COMPANY_1_ID, "invalid-category-id"),
+            ("invalid parent_category_id with not found category", 404, COMPANY_3_ID, COMPANY_1_ID),
         ]:
             with self.subTest(msg=name):
                 r = self.client.post(
@@ -285,11 +365,11 @@ class CategoryViewTests(APITestCase):
 
     def test_destroy_failures(self):
         """カテゴリ削除時の失敗ケースのテスト"""
-        for name, company_id, category_id in [
-            ("not found category_id", COMPANY_1_ID, COMPANY_2_ID),
-            ("category with children", COMPANY_3_ID, COMPANY_3_CATEGORY_1_ID),
+        for name, status_code, company_id, category_id in [
+            ("not found category_id", 404, COMPANY_1_ID, COMPANY_2_ID),
+            ("category with children", 400, COMPANY_3_ID, COMPANY_3_CATEGORY_1_ID),
         ]:
-            with self.subTest(msg=name):
+            with self.subTest(msg=name, status_code=status_code):
                 r = self.client.delete(
                     reverse(
                         "category-detail",
@@ -299,4 +379,4 @@ class CategoryViewTests(APITestCase):
                         },
                     ),
                 )
-                self.assertEqual(r.status_code, 404)
+                self.assertEqual(r.status_code, status_code)
