@@ -90,6 +90,9 @@ class CategoryView(APIView):
                     company_id=self.company.id,
                 ),
                 many=True,
+                context={
+                    "company_id": self.company.id,
+                },
             )
 
             if not serializer.data:
@@ -110,6 +113,9 @@ class CategoryView(APIView):
             serializer = CategoriesSerializer(
                 Category.objects.filter(company_id=self.company.id),
                 many=True,
+                context={
+                    "company_id": self.company.id,
+                },
             )
 
             return Response(
@@ -129,7 +135,12 @@ class CategoryView(APIView):
         }
         """
 
-        serializer = CategoriesSerializer(data=request.data)
+        serializer = CategoriesSerializer(
+            data=request.data,
+            context={
+                "company_id": self.company.id,
+            },
+        )
         serializer.is_valid(raise_exception=True)
         try:
             with transaction.atomic():
