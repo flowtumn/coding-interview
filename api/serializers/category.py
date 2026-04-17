@@ -28,17 +28,16 @@ class CategoriesSerializer(serializers.ModelSerializer):
         format='hex_verbose', 
     )
 
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        # PATCH操作時、自身を親カテゴリに設定できないようにする
-        if self.instance and data.get('parent_category_id') == self.instance.id:
-            raise serializers.ValidationError(
-                {"parent_category_id": "A category cannot be its own parent."}
-            )
-        return data
-    
     def validate_parent_category_id(self, value: uuid.UUID | None) -> uuid.UUID | None:
-        if value:
-            company_id = self.context.get('company_id')
-            if not Category.objects.filter(id=value, company_id=company_id).exists():
-                raise serializers.ValidationError("Specified parent category does not exist within the company.")
+        if not value:
+            return value
+
+        # PATCH操作時、自身を親カテゴリに設定できないようにする
+        if self.instance and value == self.instance.id:
+            raise serializers.ValidationError("A category cannot be its own parent.")
+
+        company_id = self.context.get('company_id')
+        if not Category.objects.filter(id=value, company_id=company_id).exists():
+            raise serializers.ValidationError("Specified parent category does not exist within the company.")
+
         return value

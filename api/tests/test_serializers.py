@@ -73,8 +73,9 @@ class CategoriesSerializerTests(TestCase):
         )
         
         self.assertFalse(serializer.is_valid())
-        self.assertEqual(len(serializer.errors), 1)
         self.assertEqual(
-            serializer.errors["parent_category_id"][0], 
-            "A category cannot be its own parent."
+            serializer.errors,
+            {
+                "parent_category_id": [ErrorDetail(string='A category cannot be its own parent.', code='invalid')],
+            },
         )
