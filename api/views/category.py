@@ -36,6 +36,7 @@ def get_company(
 class CategoryView(APIView):
     @staticmethod
     def convert_to_response(categories: list[dict]) -> list[dict]:
+        """Categoryのリストを、親子関係を表すツリー構造に変換します。"""
         category_map = {
             str(category["id"]): {
                 **category,
@@ -96,7 +97,8 @@ class CategoryView(APIView):
 
             data = self.convert_to_response(categories=serializer.data)
 
-            # category_idが指定されているので、配列の大きさは1
+            # category_idが指定されているので、配列の大きさは必ず1件
+            # 1件で無いときは、内部の処理に問題があるため 500 エラーを返すのは意図しています
             assert len(data) == 1
 
             return Response(
