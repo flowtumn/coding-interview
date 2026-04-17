@@ -50,17 +50,17 @@ class CategoryViewUtilsTests(TestCase):
                     parse_must_uuid(value=v, exception=InvalidCompanyID),
                 )
 
-    # def test_parse_must_uuid_failures(self):
-    #     """parse_must_uuidの失敗ケースのテスト"""
-    #     for name, v, raise_exception in [
-    #         ("invalid uuid format", "invalid-uuid", InvalidCompanyID),
-    #         ("empty string", "", InvalidCategoryID),
-    #     ]:
-    #         with self.subTest(msg=name):
-    #             try:
-    #                 parse_must_uuid(value=v, exception=raise_exception)
-    #             except type(raise_exception) as e:
-    #                 pass
+    def test_parse_must_uuid_failures(self):
+        """parse_must_uuidの失敗ケースのテスト"""
+        for name, v, raise_exception in [
+            ("invalid uuid format", "invalid-uuid", InvalidCompanyID),
+            ("empty string", "", InvalidCategoryID),
+        ]:
+            with self.subTest(msg=name):
+                with self.assertRaises(Exception) as cm:
+                    parse_must_uuid(value=v, exception=raise_exception)
+                self.assertIsInstance(cm.exception, type(raise_exception))
+                self.assertEqual(str(cm.exception), str(raise_exception))
     
     def test_get_company_success(self):
         """get_companyのテスト"""
@@ -71,12 +71,18 @@ class CategoryViewUtilsTests(TestCase):
             get_company(company_id=COMPANY_1_ID),
         )
 
-    # def test_get_company_not_found(self):
-    #     """get_companyの会社が見つからないケースのテスト"""
-    #     with self.assertRaises(InvalidCompanyID) as cm:
-    #         get_company(company_id=NOT_FOUND_COMPANY_ID)
-    #     self.assertNotEqual(str(cm.exception), str(InvalidCompanyID))
-
+    def test_get_company_not_found(self):
+        """get_companyの会社が見つからないケースのテスト"""
+        for name, v, raise_exception in [
+            ("not found company", NOT_FOUND_COMPANY_ID, InvalidCompanyID),
+            # 任意の例外の送出も確認
+            ("not found company", NOT_FOUND_COMPANY_ID, ValueError("Some other exception")),
+        ]:
+            with self.subTest(msg=name):
+                with self.assertRaises(Exception) as cm:
+                    get_company(company_id=v, exception=raise_exception)
+                self.assertIsInstance(cm.exception, type(raise_exception))
+                self.assertEqual(str(cm.exception), str(raise_exception))
 
     def test_convert_to_response(self):
         """CategoryView.convert_to_responseのテスト"""
@@ -485,17 +491,19 @@ class CategoryViewAPITests(APITestCase):
 
     def test_create_failures(self):
         """カテゴリ作成時の失敗ケースのテスト"""
-        for name, status_code, company_id, parent_category_id in [
-            ("invalid company_id", 400, "invalid", None),
-            ("not found company_id", 404, NOT_FOUND_COMPANY_ID, None),
-            ("invalid parent_category_id", 400, COMPANY_1_ID, "invalid-category-id"),
-            ("invalid parent_category_id with not found category", 400, COMPANY_3_ID, COMPANY_1_ID),
+        for name, status_code, company_id, category_name, parent_category_id in [
+            ("invalid company_id", 400, "invalid", "category1", None),
+            ("not found company_id", 404, NOT_FOUND_COMPANY_ID, "category1", None),
+            ("invalid parent_category_id", 400, COMPANY_1_ID, "category1", "invalid-category-id"),
+            ("invalid parent_category_id with not found category", 400, COMPANY_3_ID, "category1", COMPANY_1_ID),
+            ("no name", 400, COMPANY_1_ID, None, None),
+            ("empty name", 400, COMPANY_1_ID, "", None),
         ]:
             with self.subTest(msg=name):
                 r = self.client.post(
                     reverse("categories", kwargs={"company_id": company_id}),
                     data={
-                        "name": "category1",
+                        "name": category_name,
                         "parent_category_id": parent_category_id,
                     },
                     format='json',
@@ -599,6 +607,15 @@ class CategoryViewAPITests(APITestCase):
                 NOT_FOUND_COMPANY_ID,
                 {},
             ),
+            (
+                "empty name",
+                400,
+                COMPANY_3_ID,
+                COMPANY_3_CATEGORY_1_1_ID,
+                {
+                    "name": "",
+                },
+            ),
             # 親を自分自身に変更
             (
                 "company 3 category 1-1 update parent_category_id to itself",
@@ -633,7 +650,6 @@ class CategoryViewAPITests(APITestCase):
                     format='json',
                 )
                 self.assertEqual(status_code, r.status_code)
-
 
     def test_destroy_success(self):
         """カテゴリを削除するテスト"""

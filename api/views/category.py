@@ -1,6 +1,4 @@
 import uuid
-from api.models import Category, Company
-from api.serializers import CategoriesSerializer
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import Http404
@@ -9,6 +7,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from api.models import Category, Company
+from api.serializers import CategoriesSerializer
 
 
 InvalidCompanyID = ValidationError("Invalid company_id")
@@ -163,6 +163,7 @@ class CategoryView(APIView):
         serializer = CategoriesSerializer(
             category,
             data=request.data,
+            partial=True, # 部分更新を許可
             context={
                 "company_id": self.company.id,
             },
