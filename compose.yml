@@ -1,0 +1,23 @@
+services:
+  test:
+    build: .
+    command: 'pipenv run python manage.py test -v 2'
+    environment:
+      DB_HOST_NAME: postgresql
+    depends_on:
+      postgresql:
+        condition: service_healthy
+  postgresql:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: coding-test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d coding-test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    ports:
+      - 5432:5432
