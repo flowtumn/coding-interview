@@ -437,17 +437,23 @@ class CategoryViewAPITests(APITestCase):
 
     def test_create_success(self):
         """カテゴリを作成するテスト"""
-        for name, company_id in [
-            ("company 1", COMPANY_1_ID),
-            ("company 2", COMPANY_2_ID),
+        for name, company_id, body in [
+            ("company 1", COMPANY_1_ID, {"name": "category1"}),
+            ("company 2", COMPANY_2_ID, {"name": "category1"}),
+            (
+                "company 3 with parent category",
+                COMPANY_3_ID,
+                {
+                    "name": "category1",
+                    "parent_category_id": str(COMPANY_3_CATEGORY_1_ID),
+                },
+            ),
         ]:
             with self.subTest(msg=name):
                 # 企業間で同じカテゴリ名を作成できることを確認するため、カテゴリ名称は固定にする
                 r = self.client.post(
                     reverse("categories", kwargs={"company_id": company_id}),
-                    data={
-                        "name": "category1",
-                    },
+                    data=body,
                     format='json',
                 )
 
@@ -464,8 +470,8 @@ class CategoryViewAPITests(APITestCase):
                 self.assertEqual(
                     actual_data,
                     {
-                        "name": "category1",
-                        "parent_category_id": None,
+                        "name": body["name"],
+                        "parent_category_id": body.get("parent_category_id"),
                     },
                 )
 
@@ -474,8 +480,8 @@ class CategoryViewAPITests(APITestCase):
                     Category.objects.filter(
                         id=category_id,
                         company_id=company_id,
-                        name="category1",
-                        parent_category_id=None,
+                        name=body["name"],
+                        parent_category_id=body.get("parent_category_id"),
                     ).exists(),
                 )
 
@@ -496,6 +502,7 @@ class CategoryViewAPITests(APITestCase):
             ("not found company_id", 404, NOT_FOUND_COMPANY_ID, "category1", None),
             ("invalid parent_category_id", 400, COMPANY_1_ID, "category1", "invalid-category-id"),
             ("invalid parent_category_id with not found category", 400, COMPANY_3_ID, "category1", COMPANY_1_ID),
+            ("parent_category_id that belongs to another company", 400, COMPANY_3_ID, "category1", COMPANY_2_CATEGORY_1_ID),
             ("no name", 400, COMPANY_1_ID, None, None),
             ("empty name", 400, COMPANY_1_ID, "", None),
         ]:
@@ -541,6 +548,14 @@ class CategoryViewAPITests(APITestCase):
             ),
         ]:
             with self.subTest(msg=name):
+                # 更新前のカテゴリの状態を取得する
+                old_category = model_to_dict(
+                    Category.objects.get(
+                        id=category_id,
+                        company_id=company_id,
+                    ),
+                )
+
                 r = self.client.patch(
                     reverse(
                         "category-detail",
@@ -553,6 +568,23 @@ class CategoryViewAPITests(APITestCase):
                     format='json',
                 )
                 self.assertEqual(r.status_code, 200)
+
+                # created_at, updated_at は動的に生成されるため取り除く
+                actual_data = r.json()
+
+                # 直近の時間かをテストする
+                self.assert_datetime_within_range(at=actual_data.pop("created_at"))
+                self.assert_datetime_within_range(at=actual_data.pop("updated_at"))
+
+                parent_category_id = body.get("parent_category_id", old_category["parent_category"])
+                self.assertEqual(
+                    {
+                        "id": str(category_id),
+                        "name": body.get("name", old_category["name"]),
+                        "parent_category_id": parent_category_id and str(parent_category_id),
+                    },
+                    actual_data,
+                )
 
                 # DBの値も更新されていることを確認する
                 category = model_to_dict(
