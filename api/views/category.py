@@ -23,16 +23,6 @@ def parse_must_uuid(value: str, exception: Exception) -> uuid.UUID:
         raise exception
 
 
-def get_company(
-    company_id: uuid.UUID,
-    exception: Exception = InvalidCompanyID,
-) -> Company:
-    try:
-        return Company.objects.get(id=company_id)
-    except Company.DoesNotExist:
-        raise exception
-
-
 class CategoryView(APIView):
     @staticmethod
     def convert_to_response(categories: list[dict]) -> list[dict]:

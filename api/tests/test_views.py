@@ -1,7 +1,7 @@
 import dataclasses
 import uuid
 from api.models import Category, Company
-from api.views.category import get_company, parse_must_uuid, CategoryView, InvalidCompanyID, InvalidCategoryID
+from api.views.category import parse_must_uuid, CategoryView, InvalidCompanyID, InvalidCategoryID
 from django.forms.models import model_to_dict
 from django.test import TestCase
 from django.urls import reverse
@@ -62,28 +62,6 @@ class CategoryViewUtilsTests(TestCase):
                 self.assertIsInstance(cm.exception, type(raise_exception))
                 self.assertEqual(str(cm.exception), str(raise_exception))
     
-    def test_get_company_success(self):
-        """get_companyのテスト"""
-        company = Company.objects.create(id=COMPANY_1_ID, name="Test Company 1")
-
-        self.assertEqual(
-            company,
-            get_company(company_id=COMPANY_1_ID),
-        )
-
-    def test_get_company_not_found(self):
-        """get_companyの会社が見つからないケースのテスト"""
-        for name, v, raise_exception in [
-            ("not found company", NOT_FOUND_COMPANY_ID, InvalidCompanyID),
-            # 任意の例外の送出も確認
-            ("not found company", NOT_FOUND_COMPANY_ID, ValueError("Some other exception")),
-        ]:
-            with self.subTest(msg=name):
-                with self.assertRaises(Exception) as cm:
-                    get_company(company_id=v, exception=raise_exception)
-                self.assertIsInstance(cm.exception, type(raise_exception))
-                self.assertEqual(str(cm.exception), str(raise_exception))
-
     def test_convert_to_response(self):
         """CategoryView.convert_to_responseのテスト"""
         for name, categories, expected in [
